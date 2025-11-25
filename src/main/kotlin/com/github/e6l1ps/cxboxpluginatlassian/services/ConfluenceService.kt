@@ -173,18 +173,6 @@ class ConfluenceService(project: Project) {
             null
         }
     }
-    private fun prepareContentForConfluence(htmlContent: String): String {
-        return htmlContent
-            // Убираем лишние пробелы в начале строк
-            .lines()
-            .joinToString("\n") { it.trimStart() }
-            // Экранируем только обратные слеши и переносы строк для JSON
-            .replace("\\", "\\\\")
-            .replace("\"", "\\\"")
-            .replace("\n", "\\n")
-            .replace("\t", "\\t")
-            .replace("\r", "\\r")
-    }
 
     private fun createPage(title: String, content: String, parentPageId: String?): String? {
         val pageJson = buildCreatePageJson(title, content, parentPageId)

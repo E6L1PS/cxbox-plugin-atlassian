@@ -18,15 +18,19 @@ object ConfluenceMarkupGenerator {
         this.baseUrl = baseUrl.removeSuffix("/")
         this.spaceKey = spaceKey
     }
-    fun generateHierarchicalDocumentation(result: MetaFilesResult, project: Project): Map<String, Pair<String, String?>> {
+
+    fun generateHierarchicalDocumentation(
+        result: MetaFilesResult,
+        project: Project
+    ): Map<String, Pair<String, String?>> {
         val pages = mutableMapOf<String, Pair<String, String?>>()
 
         // 1. Главная страница
         pages["MAIN"] = generateMainPage(result) to null
 
         // 2. Создаем родительские страницы для каждой категории
-        pages["CATEGORY_SCREENS"] = generateScreensCategoryPage("Screens", result.screens)  to "MAIN"
-        pages["CATEGORY_VIEWS"] = generateViewsCategoryPage("Views", result.views)  to "MAIN"
+        pages["CATEGORY_SCREENS"] = generateScreensCategoryPage("Screens", result.screens) to "MAIN"
+        pages["CATEGORY_VIEWS"] = generateViewsCategoryPage("Views", result.views) to "MAIN"
         pages["CATEGORY_WIDGETS"] = generateWidgetsCategoryPage("Widgets", result.widgets) to "MAIN"
 
         // 3. Страницы для каждого Screen (родитель = CATEGORY_SCREENS)
@@ -46,7 +50,8 @@ object ConfluenceMarkupGenerator {
         val bcToActionsMap = serviceActionAnalysisService.buildBcToActionsMap(bcToServiceImpl)
         // 5. Страницы для каждого Widget (родитель = CATEGORY_WIDGETS)
         result.widgets.forEach { widget ->
-            pages["WIDGET_${widget.name}"] = generateWidgetPage(widget, bcToActionsMap, bcToFieldsLogic) to "CATEGORY_WIDGETS"
+            pages["WIDGET_${widget.name}"] =
+                generateWidgetPage(widget, bcToActionsMap, bcToFieldsLogic, result) to "CATEGORY_WIDGETS"
         }
 
         return pages
@@ -154,9 +159,10 @@ object ConfluenceMarkupGenerator {
                 <th>Views в навигации</th>
                 <th>Основные Views</th>
             </tr>
-            ${screens.joinToString("") { screen ->
-            val viewsCount = countViewsInScreen(screen)
-            """
+            ${
+            screens.joinToString("") { screen ->
+                val viewsCount = countViewsInScreen(screen)
+                """
                 <tr>
                     <td><strong>${escapeHtml(screen.title)}</strong></td>
                     <td>${getPageLink("Screen:", screen.name)}</td>
@@ -167,13 +173,15 @@ object ConfluenceMarkupGenerator {
                     <td>${screen.primaryViews.size}</td>
                 </tr>
                 """
-        }}
+            }
+        }
         </table>
         
         <h2>📈 Распределение по иконкам</h2>
         ${generateScreensIconsDistribution(screens)}
     """.trimIndent()
     }
+
     private fun generateViewsCategoryPage(category: String, views: List<ViewFile>): String {
         val viewsByTemplate = views.groupBy { it.template ?: "Не указан" }
         val totalWidgets = views.sumOf { it.widgets.size }
@@ -216,8 +224,9 @@ object ConfluenceMarkupGenerator {
                 <th>Виджетов</th>
                 <th>URL</th>
             </tr>
-            ${views.take(100).joinToString("") { view ->
-            """
+            ${
+            views.take(100).joinToString("") { view ->
+                """
                 <tr>
                     <td><strong>${escapeHtml(view.title)}</strong></td>
                     <td>${getPageLink("View:", view.name)}</td>
@@ -227,7 +236,8 @@ object ConfluenceMarkupGenerator {
                     <td><code>${view.url ?: "-"}</code></td>
                 </tr>
                 """
-        }}
+            }
+        }
         </table>
         ${if (views.size > 100) "<p><em>... и ещё ${views.size - 100} views</em></p>" else ""}
     """.trimIndent()
@@ -283,9 +293,10 @@ object ConfluenceMarkupGenerator {
                 <th>Поля</th>
                 <th>Действия</th>
             </tr>
-            ${widgets.take(100).joinToString("") { widget ->
-            val actionsCount = widget.actionGroups?.include?.size ?: 0
-            """
+            ${
+            widgets.take(100).joinToString("") { widget ->
+                val actionsCount = widget.actionGroups?.include?.size ?: 0
+                """
                 <tr>
                     <td><strong>${escapeHtml(widget.title)}</strong></td>
                     <td>${getPageLink("Widget:", widget.name)}</td>
@@ -295,7 +306,8 @@ object ConfluenceMarkupGenerator {
                     <td>${if (actionsCount > 0) actionsCount else "-"}</td>
                 </tr>
                 """
-        }}
+            }
+        }
         </table>
         ${if (widgets.size > 100) "<p><em>... и ещё ${widgets.size - 100} widgets</em></p>" else ""}
     """.trimIndent()
@@ -319,16 +331,18 @@ object ConfluenceMarkupGenerator {
                 <th>Количество</th>
                 <th>Процент</th>
             </tr>
-            ${viewsByTemplate.entries.sortedByDescending { it.value.size }.joinToString("") { (template, views) ->
-            val percentage = (views.size * 100.0 / totalViews).toInt()
-            """
+            ${
+            viewsByTemplate.entries.sortedByDescending { it.value.size }.joinToString("") { (template, views) ->
+                val percentage = (views.size * 100.0 / totalViews).toInt()
+                """
                 <tr>
                     <td><code>${escapeHtml(template)}</code></td>
                     <td>${views.size}</td>
                     <td>$percentage%</td>
                 </tr>
                 """
-        }}
+            }
+        }
         </table>
     """.trimIndent()
     }
@@ -343,16 +357,18 @@ object ConfluenceMarkupGenerator {
                 <th>Количество</th>
                 <th>Процент</th>
             </tr>
-            ${widgetsByType.entries.sortedByDescending { it.value.size }.joinToString("") { (type, widgets) ->
-            val percentage = (widgets.size * 100.0 / totalWidgets).toInt()
-            """
+            ${
+            widgetsByType.entries.sortedByDescending { it.value.size }.joinToString("") { (type, widgets) ->
+                val percentage = (widgets.size * 100.0 / totalWidgets).toInt()
+                """
                 <tr>
                     <td><code>${escapeHtml(type)}</code></td>
                     <td>${widgets.size}</td>
                     <td>$percentage%</td>
                 </tr>
                 """
-        }}
+            }
+        }
         </table>
     """.trimIndent()
     }
@@ -368,16 +384,18 @@ object ConfluenceMarkupGenerator {
                 <th>Количество виджетов</th>
                 <th>Процент</th>
             </tr>
-            ${topBCs.joinToString("") { (bc, widgets) ->
-            val percentage = (widgets.size * 100.0 / widgets.size).toInt()
-            """
+            ${
+            topBCs.joinToString("") { (bc, widgets) ->
+                val percentage = (widgets.size * 100.0 / widgets.size).toInt()
+                """
                 <tr>
                     <td><code>${escapeHtml(bc)}</code></td>
                     <td>${widgets.size}</td>
                     <td>$percentage%</td>
                 </tr>
                 """
-        }}
+            }
+        }
         </table>
         ${if (bcDistribution.size > 10) "<p><em>... и ещё ${bcDistribution.size - 10} BC</em></p>" else ""}
     """.trimIndent()
@@ -393,16 +411,18 @@ object ConfluenceMarkupGenerator {
                 <th>Количество</th>
                 <th>Процент</th>
             </tr>
-            ${iconsDistribution.entries.sortedByDescending { it.value.size }.joinToString("") { (icon, screens) ->
-            val percentage = (screens.size * 100.0 / screens.size).toInt()
-            """
+            ${
+            iconsDistribution.entries.sortedByDescending { it.value.size }.joinToString("") { (icon, screens) ->
+                val percentage = (screens.size * 100.0 / screens.size).toInt()
+                """
                 <tr>
                     <td><code>${if (icon == "Не указана") icon else "'$icon'"} </code></td>
                     <td>${screens.size}</td>
                     <td>$percentage%</td>
                 </tr>
                 """
-        }}
+            }
+        }
         </table>
     """.trimIndent()
     }
@@ -472,7 +492,9 @@ object ConfluenceMarkupGenerator {
             ${generateWidgetsOverviewTable(result.widgets)}
             
             <hr/>
-            <p><em>Сгенерировано автоматически ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm").format(java.util.Date())}</em></p>
+            <p><em>Сгенерировано автоматически ${
+            java.text.SimpleDateFormat("yyyy-MM-dd HH:mm").format(java.util.Date())
+        }</em></p>
         """.trimIndent()
     }
 
@@ -495,41 +517,57 @@ object ConfluenceMarkupGenerator {
                     <td><strong>Имя</strong></td>
                     <td><code>${escapeHtml(screen.name)}</code></td>
                 </tr>
-                ${screen.icon?.let { """
+                ${
+            screen.icon?.let {
+                """
                 <tr>
                     <td><strong>Иконка</strong></td>
                     <td><code>$it</code></td>
                 </tr>
-                """ } ?: ""}
-                ${screen.order?.let { """
+                """
+            } ?: ""
+        }
+                ${
+            screen.order?.let {
+                """
                 <tr>
                     <td><strong>Порядок</strong></td>
                     <td>$it</td>
                 </tr>
-                """ } ?: ""}
-                ${screen.primaryViewName?.let { """
+                """
+            } ?: ""
+        }
+                ${
+            screen.primaryViewName?.let {
+                """
                 <tr>
                     <td><strong>Основное View</strong></td>
                     <td><a href="#View: $it">$it</a></td>
                 </tr>
-                """ } ?: ""}
+                """
+            } ?: ""
+        }
             </table>
             
             <h2>🧭 Навигация</h2>
             ${generateNavigationTree(screen.navigation)}
             
             <h2>📊 Связанные Views</h2>
-            ${if (relatedViews.isNotEmpty()) {
-            generateRelatedViewsTable(relatedViews)
-        } else {
-            "<p>Нет связанных views</p>"
-        }}
+            ${
+            if (relatedViews.isNotEmpty()) {
+                generateRelatedViewsTable(relatedViews)
+            } else {
+                "<p>Нет связанных views</p>"
+            }
+        }
             
             <h2>⭐ Основные Views</h2>
             <ul>
-                ${screen.primaryViews.joinToString("") { viewName ->
-            "<li><a href=\"#View: $viewName\">$viewName</a></li>"
-        }}
+                ${
+            screen.primaryViews.joinToString("") { viewName ->
+                "<li><a href=\"#View: $viewName\">$viewName</a></li>"
+            }
+        }
             </ul>
         """.trimIndent()
     }
@@ -552,18 +590,26 @@ object ConfluenceMarkupGenerator {
                     <td><strong>Имя</strong></td>
                     <td><code>${escapeHtml(view.name)}</code></td>
                 </tr>
-                ${view.template?.let { """
+                ${
+            view.template?.let {
+                """
                 <tr>
                     <td><strong>Шаблон</strong></td>
                     <td><code>$it</code></td>
                 </tr>
-                """ } ?: ""}
-                ${view.url?.let { """
+                """
+            } ?: ""
+        }
+                ${
+            view.url?.let {
+                """
                 <tr>
                     <td><strong>URL</strong></td>
                     <td><code>$it</code></td>
                 </tr>
-                """ } ?: ""}
+                """
+            } ?: ""
+        }
                 <tr>
                     <td><strong>Роли</strong></td>
                     <td>${view.rolesAllowed.joinToString(", ")}</td>
@@ -604,16 +650,18 @@ object ConfluenceMarkupGenerator {
                     <th>Количество</th>
                     <th>Процент</th>
                 </tr>
-                ${sortedTypes.joinToString("") { (type, fields) ->
-            val percentage = (fields.size * 100.0 / totalFields).toInt()
-            """
+                ${
+            sortedTypes.joinToString("") { (type, fields) ->
+                val percentage = (fields.size * 100.0 / totalFields).toInt()
+                """
                     <tr>
                         <td><code>${escapeHtml(type)}</code></td>
                         <td>${fields.size}</td>
                         <td>$percentage%</td>
                     </tr>
                     """
-        }}
+            }
+        }
             </table>
         """.trimIndent()
     }
@@ -631,9 +679,10 @@ object ConfluenceMarkupGenerator {
                     <th>Основное View</th>
                     <th>Кол-во Views</th>
                 </tr>
-                ${screens.joinToString("") { screen ->
-            val viewsCount = countViewsInScreen(screen)
-            """
+                ${
+            screens.joinToString("") { screen ->
+                val viewsCount = countViewsInScreen(screen)
+                """
                     <tr>
                         <td><strong>${escapeHtml(screen.title)}</strong></td>
                         <td><code>${escapeHtml(screen.name)}</code></td>
@@ -643,7 +692,8 @@ object ConfluenceMarkupGenerator {
                         <td>$viewsCount</td>
                     </tr>
                     """
-        }}
+            }
+        }
             </table>
         """.trimIndent()
     }
@@ -660,8 +710,9 @@ object ConfluenceMarkupGenerator {
                     <th>Роли</th>
                     <th>Кол-во виджетов</th>
                 </tr>
-                ${views.joinToString("") { view ->
-            """
+                ${
+            views.joinToString("") { view ->
+                """
                     <tr>
                         <td><strong>${escapeHtml(view.title)}</strong></td>
                         <td><code>${escapeHtml(view.name)}</code></td>
@@ -670,7 +721,8 @@ object ConfluenceMarkupGenerator {
                         <td>${view.widgets.size}</td>
                     </tr>
                     """
-        }}
+            }
+        }
             </table>
         """.trimIndent()
     }
@@ -687,8 +739,9 @@ object ConfluenceMarkupGenerator {
                     <th>BC</th>
                     <th>Кол-во полей</th>
                 </tr>
-                ${widgets.take(50).joinToString("") { widget -> // Ограничим для производительности
-            """
+                ${
+            widgets.take(50).joinToString("") { widget -> // Ограничим для производительности
+                """
                     <tr>
                         <td><strong>${escapeHtml(widget.title)}</strong></td>
                         <td><code>${escapeHtml(widget.name)}</code></td>
@@ -697,7 +750,8 @@ object ConfluenceMarkupGenerator {
                         <td>${widget.fields.size}</td>
                     </tr>
                     """
-        }}
+            }
+        }
             </table>
             ${if (widgets.size > 50) "<p>... и ещё ${widgets.size - 50} виджетов</p>" else ""}
         """.trimIndent()
@@ -712,8 +766,9 @@ object ConfluenceMarkupGenerator {
                     <th>Роли</th>
                     <th>Виджетов</th>
                 </tr>
-                ${views.joinToString("") { view ->
-            """
+                ${
+            views.joinToString("") { view ->
+                """
                     <tr>
                         <td><strong>${escapeHtml(view.title)}</strong></td>
                         <td>${view.template ?: "-"}</td>
@@ -721,7 +776,8 @@ object ConfluenceMarkupGenerator {
                         <td>${view.widgets.size}</td>
                     </tr>
                     """
-        }}
+            }
+        }
             </table>
         """.trimIndent()
     }
@@ -739,21 +795,23 @@ object ConfluenceMarkupGenerator {
                     <th>Описание заголовка</th>
                     <th>Поля</th>
                 </tr>
-                ${viewWidgets.joinToString("") { vw ->
-            val widget = relatedWidgets.find { it.name == vw.widgetName }
-            val widgetPageLink = getPageLink("Widget:", vw.widgetName)
-            """
+                ${
+            viewWidgets.joinToString("") { vw ->
+                val widget = relatedWidgets.find { it.name == vw.widgetName }
+                val widgetPageLink = getPageLink("Widget:", vw.widgetName)
+                """
                     <tr>
                         <td>${vw.position}</td>
                         <td>${vw.gridWidth}</td>
                         <td><code>${widgetPageLink}</code></td>
-                        <td>${widget?.type ?: "?"}</td>
+                        <td>${CXBoxHrefUtils.getWidgetTypeLink(widget?.type ?: "?")}</td>
                         <td>${widget?.bc ?: "?"}</td>
                         <td>${vw.descriptionTitle ?: "-"}</td>
                         <td>${widget?.fields?.size ?: "?"}</td>
                     </tr>
                     """
-        }}
+            }
+        }
             </table>
         """.trimIndent()
     }
@@ -761,9 +819,13 @@ object ConfluenceMarkupGenerator {
     private fun getPageLink(prefix: String, widgetName: String): String {
         val pageTitle = "$prefix $widgetName"
 
-        return """<a href="$baseUrl/display/$spaceKey/${URLEncoder.encode(pageTitle, "UTF-8")}"><code>$widgetName</code></a>"""
+        return """<a href="$baseUrl/display/$spaceKey/${
+            URLEncoder.encode(
+                pageTitle,
+                "UTF-8"
+            )
+        }"><code>$widgetName</code></a>"""
     }
-
 
     private fun generateFieldsTable(fields: List<WidgetField>, fieldMappings: Map<String, String>): String {
         if (fields.isEmpty()) return "<p>Нет полей</p>"
@@ -779,11 +841,12 @@ object ConfluenceMarkupGenerator {
                     <th>Режим</th>
                     <th>Логика маппинга</th>
                 </tr>
-                ${fields.joinToString("") { field ->
-            """
+                ${
+            fields.joinToString("") { field ->
+                """
                     <tr>
                         <td><code>${escapeHtml(field.key)}</code></td>
-                        <td><code>${escapeHtml(field.type)}</code></td>
+                        <td>${CXBoxHrefUtils.getFieldTypeLink(escapeHtml(field.type))}</td>
                         <td>${escapeHtml(field.title)}</td>
                         <td>${if (field.drillDown) "✅" else "❌"}</td>
                         <td>${field.width ?: "-"}</td>
@@ -791,7 +854,8 @@ object ConfluenceMarkupGenerator {
                         <td><code style="font-size: 12px;">${escapeHtml(fieldMappings[field.key] ?: "")}</code></td>
                     </tr>
                     """
-        }}
+            }
+        }
             </table>
         """.trimIndent()
     }
@@ -851,6 +915,7 @@ object ConfluenceMarkupGenerator {
                         is MenuItemChild.ViewItem -> {
                             appendLine("<li class='view'>👁 ${getPageLink("View:", escapeHtml(child.viewName))}</li>")
                         }
+
                         is MenuItemChild.SubMenu -> {
                             appendLine(generateSubMenuTree(child))
                         }
@@ -874,6 +939,7 @@ object ConfluenceMarkupGenerator {
                         is MenuItemChild.ViewItem -> {
                             appendLine("<li class='view'>👁 ${getPageLink("View:", escapeHtml(child.viewName))}</li>")
                         }
+
                         is MenuItemChild.SubMenu -> {
                             appendLine(generateSubMenuTree(child))
                         }
@@ -941,91 +1007,23 @@ object ConfluenceMarkupGenerator {
         }
     }
 
-
-    // ========== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ ФОРМАТИРОВАНИЯ ==========
-
-    private fun escapeTableCell(text: String): String {
-        return text
-            .replace("|", "\\|")
-            .replace("\n", " ")
-            .replace("\r", " ")
-            .replace("[", "\\[")
-            .replace("]", "\\]")
-            .trim()
-    }
-
-    private fun JsonArray?.map(transform: (JsonElement) -> String): List<String> {
-        return this?.map(transform) ?: emptyList()
-    }
-
-    private fun JsonObject?.getAsString(key: String): String? {
-        return this?.get(key)?.asString
-    }
-
-    private fun JsonObject?.getAsInt(key: String): Int? {
-        return this?.get(key)?.asInt
-    }
-
-    private fun JsonObject?.getAsBoolean(key: String): Boolean? {
-        return this?.get(key)?.asBoolean
-    }
-
-    private fun JsonObject?.getAsJsonArray(key: String): JsonArray? {
-        return this?.getAsJsonArray(key)
-    }
-
-    private fun JsonObject?.getAsJsonObject(key: String): JsonObject? {
-        return this?.getAsJsonObject(key)
-    }
-
-    // ========== МЕТОДЫ ДЛЯ СТАТИСТИКИ ==========
-
-    private fun generateStatistics(result: MetaFilesResult): String {
-        val totalFields = result.widgets.sumOf { it.fields.size }
-        val fieldTypes = result.widgets.flatMap { it.fields }.groupBy { it.type }
-        val bcCount = result.widgets.map { it.bc }.distinct().size
-
-        return """
-            h3. 📈 Детальная статистика
-            
-            *• Уникальных BC:* $bcCount
-            *• Всего полей:* $totalFields
-            *• Screens с навигацией:* ${result.screens.count { it.navigation != null }}
-            *• Views с ролями:* ${result.views.sumOf { it.rolesAllowed.size }}
-            
-            h4. Распределение типов полей:
-            
-            ${
-            fieldTypes.entries.sortedByDescending { it.value.size }.joinToString("\n") { (type, fields) ->
-                val percentage = (fields.size * 100) / totalFields
-                "*• `$type`:* ${fields.size} полей ($percentage%)"
-            }
-        }
-            
-            h4. Распределение типов виджетов:
-            
-            ${
-            result.widgets.groupBy { it.type }.entries.sortedByDescending { it.value.size }
-                .joinToString("\n") { (type, widgets) ->
-                    val percentage = (widgets.size * 100) / result.widgets.size
-                    "*• `$type`:* ${widgets.size} виджетов ($percentage%)"
-                }
-        }
-        """.trimIndent()
-    }
-
-    private fun generateWidgetPage(widget: WidgetFile, bcToActionsMap : Map<String, List<ButtonInfo>>, bcToFieldsLogic: Map<String, Pair<PsiClass, Map<String, String>>>): String {
+    private fun generateWidgetPage(
+        widget: WidgetFile,
+        bcToActionsMap: Map<String, List<ButtonInfo>>,
+        bcToFieldsLogic: Map<String, Pair<PsiClass, Map<String, String>>>,
+        result: MetaFilesResult
+    ): String {
         val buttonsInfo = if (widget.actionGroups != null) {
             bcToActionsMap.getOrDefault(widget.bc, emptyList())
         } else {
             emptyList()
         }
 
-        val baseEntity = bcToFieldsLogic[widget.bc]?.first?.let {
-        it.name
-        //findTableName(it)
-        } ?: "not found"
+        val baseEntity = bcToFieldsLogic[widget.bc]?.first?.name ?: "not found"
         val fieldMappings = bcToFieldsLogic[widget.bc]?.second ?: emptyMap()
+
+        // Находим все View, которые используют этот виджет
+        val usedInViews = findViewsUsingWidget(widget.name, result)
         return """
         <h1>🧩 ${escapeHtml(widget.title)}</h1>
         
@@ -1041,7 +1039,7 @@ object ConfluenceMarkupGenerator {
             </tr>
             <tr>
                 <td><strong>Тип</strong></td>
-                <td><code>${escapeHtml(widget.type)}</code></td>
+                <td>${CXBoxHrefUtils.getWidgetTypeLink(escapeHtml(widget.type))}</td>
             </tr>
             <tr>
                 <td><strong>BC</strong></td>
@@ -1059,21 +1057,108 @@ object ConfluenceMarkupGenerator {
                 <td><strong>Кнопки</strong></td>
                 <td><strong>${widget.actionGroups?.include?.size ?: 0}</strong></td>
             </tr>
+            <tr>
+                <td><strong>Условие отображения</strong></td>
+                <td>${if (widget.showCondition != null) "✅ Настроено" else "❌ Отсутствует"}</td>
+            </tr>
         </table>
         
+        ${
+            widget.showCondition?.let {
+                """
+        <h2>🎯 Условие отображения виджета</h2>
+        ${analyzeShowConditionLogic(it, bcToFieldsLogic)}
+        """
+            } ?: ""
+        }
+    
         <h2>📝 Поля виджета</h2>
         ${generateFieldsTable(widget.fields, fieldMappings)}
         
-        ${widget.actionGroups?.let { """
+        ${
+            widget.actionGroups?.let {
+                """
         <h2>🕹️ Кнопки виджета</h2>
         ${generateButtonsTable(buttonsInfo, widget.actionGroups.include)}
-        """ } ?: ""}
+        """
+            } ?: ""
+        }
         
-        ${widget.options?.let { """
-        <h2>⚙️ Опции</h2>
-        <pre>${escapeHtml(JsonParser.parseString(it.toString()).toString())}</pre>
-        """ } ?: ""}
+        ${
+            widget.options?.let {
+                """
+                <h2>⚙️ Прочие настройки</h2>
+                <ac:structured-macro ac:name="expand">
+                    <ac:parameter ac:name="title">Показать настройки виджета</ac:parameter>
+                    <ac:rich-text-body>
+                        <ac:structured-macro ac:name="code">
+                            <ac:parameter ac:name="language">json</ac:parameter>
+                            <ac:plain-text-body><![CDATA[${JsonParser.parseString(it.toString())}]]></ac:plain-text-body>
+                        </ac:structured-macro>
+                    </ac:rich-text-body>
+                </ac:structured-macro>
+                """
+            } ?: ""
+        }
+        
+        ${
+            if (usedInViews.isNotEmpty()) {
+                """
+            <h2>👁 Использование на View</h2>
+            ${generateWidgetUsageTable(usedInViews, widget.name)}
+            """
+            } else {
+                """
+        <h2>👁 Использование на View</h2>
+        <div style="background: #fff3cd; padding: 10px; border-radius: 5px; border: 1px solid #ffeaa7; margin: 10px 0;">
+            <p>⚠️ <strong>Виджет не используется ни на одном View</strong></p>
+            <p>Это может означать, что виджет:</p>
+            <ul>
+                <li>Используется динамически</li>
+                <li>Будет добавлен в будущем</li>
+                <li>Является устаревшим</li>
+            </ul>
+        </div>
+        """
+            }
+        }
     """.trimIndent()
+    }
+
+    /**
+     * Генерирует простой список View, где используется виджет
+     */
+    private fun generateWidgetUsageTable(usedInViews: List<String>, widgetName: String): String {
+        return """
+    <div style="margin-bottom: 20px;">
+        <p>Виджет <code>${escapeHtml(widgetName)}</code> используется на <strong>${usedInViews.size}</strong> View:</p>
+        
+        <ul>
+            ${
+            usedInViews.joinToString("") { viewName ->
+                "<li>${getPageLink("View:", viewName)}</li>"
+            }
+        }
+        </ul>
+    </div>
+    """.trimIndent()
+    }
+
+    /**
+     * Находит все View, которые используют указанный виджет
+     */
+    private fun findViewsUsingWidget(widgetName: String, result: MetaFilesResult): List<String> {
+        val usageInfo = mutableListOf<String>()
+
+        result.views.forEach { view ->
+            view.widgets.forEach { viewWidget ->
+                if (viewWidget.widgetName == widgetName) {
+                    usageInfo.add(view.name)
+                }
+            }
+        }
+
+        return usageInfo
     }
 
     private fun generateButtonsTable(buttonsInfo: List<ButtonInfo>, actionNames: List<String>): String {
@@ -1090,9 +1175,10 @@ object ConfluenceMarkupGenerator {
                 <th>Pre-action</th>
                 <th>Auto-save</th>
             </tr>
-            ${actionNames.joinToString("") { actionName ->
-            val buttonInfo = buttonsInfo.find { it.actionName == actionName }
-            """
+            ${
+            actionNames.joinToString("") { actionName ->
+                val buttonInfo = buttonsInfo.find { it.actionName == actionName }
+                """
                 <tr>
                     <td><code>${escapeHtml(actionName)}</code></td>
                     <td>${buttonInfo?.buttonText ?: "?"}</td>
@@ -1119,13 +1205,115 @@ object ConfluenceMarkupGenerator {
                             </ac:rich-text-body>
                         </ac:structured-macro>
                     </td>
-                    <td>${buttonInfo?.preAction ?: "-"}</td>
+                    <td>
+                        <ac:structured-macro ac:name="expand">
+                            <ac:parameter ac:name="title">Показать preAction</ac:parameter>
+                            <ac:rich-text-body>
+                                <ac:structured-macro ac:name="code">
+                                    <ac:parameter ac:name="language">java</ac:parameter>
+                                    <ac:plain-text-body><![CDATA[${buttonInfo?.preAction ?: "-"}]]></ac:plain-text-body>
+                                </ac:structured-macro>
+                            </ac:rich-text-body>
+                        </ac:structured-macro>
+                    </td>
                     <td>${if (buttonInfo?.autoSaveBefore == true) "✅" else "❌"}</td>
                 </tr>
                 """
-        }}
+            }
+        }
         </table>
     """.trimIndent()
+    }
+
+    private fun analyzeShowConditionLogic(
+        showCondition: ShowCondition,
+        bcToFieldsLogic: Map<String, Pair<PsiClass, Map<String, String>>>
+    ): String {
+        val (dtoClass, fieldMappings) = bcToFieldsLogic[showCondition.bcName]
+            ?: return "Не найдена логика для BC: ${showCondition.bcName}"
+
+        val fieldKey = showCondition.params.fieldKey
+        val expectedValue = showCondition.params.value
+
+        // Ищем логику для поля условия
+        val fieldLogic = fieldMappings[fieldKey]
+
+        return buildString {
+            appendLine("<table border='1' cellpadding='5' cellspacing='0' style='width: 100%;'>")
+            appendLine("<tr><td><strong>Поле условия</strong></td><td><code>${escapeHtml(fieldKey)}</code></td></tr>")
+            appendLine("<tr><td><strong>Ожидаемое значение</strong></td><td><code>${escapeHtml(expectedValue.toString())}</code></td></tr>")
+            appendLine("<tr><td><strong>BC</strong></td><td><code>${escapeHtml(showCondition.bcName)}</code></td></tr>")
+            appendLine("<tr><td><strong>Ключ условия</strong></td><td><code>${escapeHtml(showCondition.key)}</code></td></tr>")
+            appendLine("<tr><td><strong>Последовательность</strong></td><td>${showCondition.sequence}</td></tr>")
+            appendLine("</table>")
+
+            if (fieldLogic != null) {
+                appendLine("<h4>📋 Логика поля условия</h4>")
+                appendLine("<div style='background: #f8f9fa; padding: 10px; border-radius: 5px; border: 1px solid #e9ecef;'>")
+                appendLine("<pre style='margin: 0; font-family: \"Courier New\", monospace; font-size: 12px;'>")
+                appendLine(escapeHtml(fieldLogic))
+                appendLine("</pre>")
+                appendLine("</div>")
+
+                // Анализ логики
+                appendLine("<h4>🔎 Интерпретация логики</h4>")
+                appendLine("<ul>")
+
+                when {
+                    fieldLogic.contains("this.$fieldKey ==") || fieldLogic.contains("this.$fieldKey = ") -> {
+                        appendLine("<li>✅ Поле <code>$fieldKey</code> устанавливается напрямую</li>")
+                    }
+
+                    fieldLogic.contains("set$fieldKey") -> {
+                        appendLine("<li>✅ Используется сеттер для поля <code>$fieldKey</code></li>")
+                    }
+
+                    fieldLogic.contains("get$fieldKey") -> {
+                        appendLine("<li>ℹ️ Поле <code>$fieldKey</code> используется в геттере</li>")
+                    }
+
+                    else -> {
+                        appendLine("<li>⚠️ Логика установки поля <code>$fieldKey</code> требует дополнительного анализа</li>")
+                    }
+                }
+
+                // Проверяем, соответствует ли логика ожидаемому значению
+                when (expectedValue) {
+                    true -> {
+                        if (fieldLogic.contains("true") || fieldLogic.contains("Boolean.TRUE")) {
+                            appendLine("<li>✅ Логика соответствует ожидаемому значению <code>true</code></li>")
+                        } else {
+                            appendLine("<li>⚠️ Логика может не соответствовать ожидаемому значению <code>true</code></li>")
+                        }
+                    }
+
+                    false -> {
+                        if (fieldLogic.contains("false") || fieldLogic.contains("Boolean.FALSE")) {
+                            appendLine("<li>✅ Логика соответствует ожидаемому значению <code>false</code></li>")
+                        } else {
+                            appendLine("<li>⚠️ Логика может не соответствовать ожидаемому значению <code>false</code></li>")
+                        }
+                    }
+
+                    else -> {
+                        appendLine("<li>ℹ️ Ожидаемое значение: <code>$expectedValue</code></li>")
+                    }
+                }
+
+                appendLine("</ul>")
+            } else {
+                appendLine("<div style='background: #fff3cd; padding: 10px; border-radius: 5px; border: 1px solid #ffeaa7;'>")
+                appendLine("<p>⚠️ <strong>Логика для поля условия не найдена</strong></p>")
+                appendLine(
+                    "<p>Поле <code>${escapeHtml(fieldKey)}</code> не найдено в маппингах DTO для BC <code>${
+                        escapeHtml(
+                            showCondition.bcName
+                        )
+                    }</code></p>"
+                )
+                appendLine("</div>")
+            }
+        }
     }
 
     fun findDraftLegalEntityParameterClass(psiClass: PsiClass): PsiClass? {

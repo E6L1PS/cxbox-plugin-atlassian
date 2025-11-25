@@ -40,10 +40,14 @@ class ScanMetaFilesPanel(
         ).apply {
             isEditable = false
             font = Font(Font.MONOSPACED, Font.PLAIN, 12)
+            minimumSize = Dimension(600, 60)
+            preferredSize = Dimension(600, 60)
         }
 
         val scroll = JBScrollPane(textArea).apply {
-            preferredSize = Dimension(600, 250)
+            minimumSize = Dimension(600, 60)
+            preferredSize = Dimension(600, 60)
+            maximumSize = Dimension(600, 60)
         }
 
         startButton = JButton("Start").apply {
@@ -60,6 +64,9 @@ class ScanMetaFilesPanel(
         val startPanel = JPanel(FlowLayout(FlowLayout.RIGHT)).apply {
             add(startButton)
         }
+        panel.minimumSize = Dimension(600, 100)
+        panel.preferredSize = Dimension(600, 100)
+        panel.maximumSize = Dimension(600, 100)
 
         panel.add(scroll, BorderLayout.CENTER)
         panel.add(startPanel, BorderLayout.SOUTH)

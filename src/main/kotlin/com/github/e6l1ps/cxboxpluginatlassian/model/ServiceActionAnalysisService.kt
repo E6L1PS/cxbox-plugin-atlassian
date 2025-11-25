@@ -179,13 +179,28 @@ class ServiceActionAnalysisService(private val project: Project) {
     }
 
     private fun extractPreAction(call: PsiMethodCallExpression): String? {
-        // TODO: разбор .withPreAction(...)
+        val preActionCall = findChainedCall(call, "withPreAction") ?: return null
+
+        val arg = preActionCall.argumentList.expressions.firstOrNull() ?: return null
+
+        // Если это вызов метода
+        if (arg is PsiMethodCallExpression) {
+            val method = arg.resolveMethod() ?: return null
+            return method.body?.text
+        }
+
+        // Если это ссылка на метод
+        if (arg is PsiMethodReferenceExpression) {
+            val method = arg.resolve() as? PsiMethod ?: return null
+            return method.body?.text
+        }
+
         return null
     }
 
     private fun extractAutoSaveBefore(call: PsiMethodCallExpression): Boolean {
-        // TODO: разбор .withoutAutoSaveBefore()
-        return true
+        val withoutAutoSaveCall = findChainedCall(call, "withoutAutoSaveBefore")
+        return withoutAutoSaveCall == null
     }
 
     private fun extractIconCode(call: PsiMethodCallExpression): String? {

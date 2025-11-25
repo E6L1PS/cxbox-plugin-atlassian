@@ -1,5 +1,6 @@
 package com.github.e6l1ps.cxboxpluginatlassian.model
 
+import com.google.gson.GsonBuilder
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
@@ -71,8 +72,52 @@ class MetaFileParser {
             bc = json.getAsString("bc") ?: "-",
             fields = parseWidgetFields(json.getAsJsonArray("fields")),
             options = parseOptions(json.getAsJsonObject("options")),
-            actionGroups = parseActionGroups(json.getAsJsonObject("options"))
+            actionGroups = parseActionGroups(json.getAsJsonObject("options")),
+            showCondition = parseShowCondition(json.getAsJsonObject("showCondition"))
         )
+    }
+
+    private fun parseShowCondition(json: JsonObject?): ShowCondition? {
+        if (json == null) return null
+
+        return try {
+            ShowCondition(
+                bcName = json.getAsString("bcName") ?: return null,
+                key = json.getAsString("key") ?: return null,
+                sequence = json.getAsInt("sequence") ?: 1,
+                params = parseConditionParams(json.getAsJsonObject("params")) ?: return null
+            )
+        } catch (e: Exception) {
+            thisLogger().warn("Failed to parse showCondition: ${e.message}")
+            null
+        }
+    }
+
+    private fun parseConditionParams(json: JsonObject?): ConditionParams? {
+        if (json == null) return null
+
+        return try {
+            ConditionParams(
+                fieldKey = json.getAsString("fieldKey") ?: return null,
+                value = json.get("value")?.let {
+                    when {
+                        it.isJsonPrimitive -> {
+                            val primitive = it.asJsonPrimitive
+                            when {
+                                primitive.isBoolean -> primitive.asBoolean
+                                primitive.isNumber -> primitive.asNumber
+                                primitive.isString -> primitive.asString
+                                else -> null
+                            }
+                        }
+                        else -> null
+                    }
+                } ?: return null
+            )
+        } catch (e: Exception) {
+            thisLogger().warn("Failed to parse condition params: ${e.message}")
+            null
+        }
     }
 
     private fun parseNavigation(json: JsonObject?): Navigation? {
@@ -121,15 +166,14 @@ class MetaFileParser {
                         primitive.isBoolean -> options[key] = primitive.asBoolean
                         primitive.isNumber -> options[key] = primitive.asNumber
                         primitive.isString -> options[key] = primitive.asString
+                        else -> options[key] = primitive.toString()
                     }
                 }
 
-                value.isJsonArray -> {
-                    options[key] = value.asJsonArray.mapToStringList()
-                }
-
-                value.isJsonObject -> {
-                    options[key] = value.asJsonObject.toString()
+                else -> {
+                    // Для массивов и объектов сохраняем как отформатированную JSON строку
+                    val gson = GsonBuilder().setPrettyPrinting().create()
+                    options[key] = gson.toJson(value)
                 }
             }
         }

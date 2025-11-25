@@ -36,8 +36,21 @@ data class WidgetFile(
     val bc: String,
     val fields: List<WidgetField>,
     val options: Map<String, Any>?,
-    val actionGroups: ActionGroups? = null
+    val actionGroups: ActionGroups? = null,
+    val showCondition: ShowCondition? = null
 ) : MetaFile()
+
+data class ShowCondition(
+    val bcName: String,
+    val key: String,
+    val sequence: Int,
+    val params: ConditionParams
+)
+
+data class ConditionParams(
+    val fieldKey: String,
+    val value: Any
+)
 
 data class ActionGroups(
     val include: List<String>
