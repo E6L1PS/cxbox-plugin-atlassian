@@ -1,7 +1,10 @@
 package com.github.e6l1ps.cxboxpluginatlassian.model
 
 
+import com.github.e6l1ps.cxboxpluginatlassian.settings.CxboxSettings
 import com.intellij.openapi.application.ReadAction
+import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
 import com.intellij.psi.*
 import com.intellij.psi.search.GlobalSearchScope
@@ -63,11 +66,28 @@ class ServiceActionAnalysisService(private val project: Project) {
         val classType = classArg.operand.type as? PsiClassType ?: return null
         return classType.resolve()
     }
-    private fun findControllerEnum(): PsiClass? =
-        JavaPsiFacade.getInstance(project).findClass(
-            "org.cxlab.crm.controller.NrbRestController",
-            GlobalSearchScope.allScope(project)
-        )
+    /**
+     * Класс-контроллер с enum бизнес-компонентов. FQN задаётся настройкой проекта
+     * или переменной окружения [CxboxSettings.ENV_REST_CONTROLLER_CLASS]: раньше
+     * значение было захардкожено под конкретного заказчика.
+     */
+    private fun findControllerEnum(): PsiClass? {
+        val className = project.service<CxboxSettings>().restControllerClass
+        if (className.isEmpty()) {
+            thisLogger().warn(
+                "BC-контроллер не задан: укажите ${CxboxSettings.ENV_REST_CONTROLLER_CLASS} " +
+                    "в .env (или в настройках плагина), иначе связь BC -> service -> actions пуста"
+            )
+            return null
+        }
+
+        return JavaPsiFacade.getInstance(project)
+            .findClass(className, GlobalSearchScope.allScope(project))
+            ?: run {
+                thisLogger().warn("Класс BC-контроллера '$className' не найден в проекте")
+                null
+            }
+    }
 
 
     fun buildBcToActionsMapInternal(controllerBcMap: Map<String, PsiClass>): Map<String, List<ButtonInfo>> {
