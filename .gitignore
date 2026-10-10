@@ -1,0 +1,14 @@
+.DS_Store
+.gradle
+.idea
+.intellijPlatform
+.kotlin
+.qodana
+build
+
+# Локальные переменные окружения с секретами (образец — .env.example)
+.env*
+!.env.example
+
+# Локальный бэкап истории перед переписыванием (не коммитить)
+.backup-before-rewrite.bundle

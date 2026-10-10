@@ -1,0 +1,15 @@
+<idea-plugin>
+    <id>com.github.e6l1ps.cxboxpluginatlassian</id>
+    <name>Cxbox Atlassian Integration</name>
+    <vendor>e6l1ps</vendor>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.java</depends>
+
+    <resource-bundle>messages.MyBundle</resource-bundle>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow factoryClass="com.github.e6l1ps.cxboxpluginatlassian.ui.toolWindow.MyToolWindowFactory" id="MyToolWindow"/>
+        <postStartupActivity implementation="com.github.e6l1ps.cxboxpluginatlassian.startup.MyProjectActivity" />
+    </extensions>
+</idea-plugin>
