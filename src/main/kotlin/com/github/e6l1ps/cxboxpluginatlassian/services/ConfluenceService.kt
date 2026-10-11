@@ -9,6 +9,7 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
 import com.intellij.util.io.HttpRequests
+import org.apache.commons.lang3.text.translate.EntityArrays
 import java.net.URLConnection
 import java.net.URLEncoder
 import java.util.Base64
@@ -277,6 +278,9 @@ class ConfluenceService(private val project: Project) {
                 return pageInfo.id
             }
 
+            if (oldContent != null) {
+                logNormalizeDivergence(title, normalizeContent(oldContent), normalizeContent(content))
+            }
             thisLogger().info("Content changed, updating page: $title")
             return if (updatePage(pageInfo, content)) {
                 updatedCount.incrementAndGet()
@@ -295,25 +299,143 @@ class ConfluenceService(private val project: Project) {
         return result
     }
 
+    /**
+     * Приводит storage-разметку к каноническому виду, чтобы сравнить «что мы генерируем»
+     * с «что реально лежит на странице».
+     *
+     * Confluence при сохранении переписывает body: добавляет `<tbody>`, дописывает таблицам
+     * `class="wrapped"` и `data-layout`, расширяет проценты до `100.0%`, нормализует
+     * пробелы и сущности. Без учёта этих правок сравнение всегда давало «изменилось»,
+     * и каждая страница получала пустое обновление с инкрементом версии.
+     *
+     * Правила намеренно консервативны: убирается только то, что Confluence добавляет сам
+     * либо что не влияет на отображение. Значимые отличия (текст, порядок и состав
+     * элементов, значения атрибутов) сохраняются, поэтому реальные изменения не потеряются.
+     */
     private fun normalizeContent(html: String): String {
-        return html
-            .replace(Regex("<tbody>|</tbody>"), "")  // Убираем tbody
-            .replace("width: 100.0%", "width: 100%") // Нормализуем проценты
+        var normalized = html
+            .replace(Regex("</?tbody>"), "")          // Confluence добавляет tbody в таблицы
+            // class/data-layout/style на <table> — служебные атрибуты Confluence.
+            // style="width: 100%"/"100.0%" он то оставляет, то снимает, поэтому ширину
+            // таблицы при сравнении игнорируем: на структуру и содержимое она не влияет.
+            .replace(Regex("(<table\\b[^>]*?)\\s+class=\"(?:wrapped|fixed-table)(?: wrapped)?\""), "$1")
+            .replace(Regex("(<table\\b[^>]*?)\\s+data-layout=\"[^\"]*\""), "$1")
+            .replace(Regex("(<table\\b[^>]*?)\\s+style=\"[^\"]*\""), "$1")
             .replace(Regex(">\\s+<"), "><")           // Убираем пробелы между тегами
             .replace(Regex("\\s+"), " ")              // Схлопываем пробелы
             .replace(Regex("Сгенерировано автоматически \\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}"),
                 "Сгенерировано автоматически")   // Игнорируем дату
-            .replace(Regex("<(strong|b|em|i|u|span)>\\s*</\\1>"), "")
+            .replace(Regex("<(strong|b|em|i|u|span|code)>\\s*</\\1>"), "")
             .replace(Regex("<(hr|br|img|input|meta|link)\\s+/>"), "<$1/>")
-            .replace("&laquo;", "«")
-            .replace("&raquo;", "»")
-            .replace("&quot;", "\"")
-            .replace("&mdash;", "—")
-            .replace("&sup2;", "²")
-            .replace("&#39;", "'")
+            // Confluence дописывает <br/> в пустые ячейки. Генератор для пустого значения
+            // (например, пустого view.title) пишет <td><code></code></td>, а Confluence
+            // сохраняет <td><br/></td>. Содержимое обоих вариантов пустое — приравниваем.
+            .replace(Regex("<(td|th|p)>\\s*(?:<(?:code|span|strong|em|b|i|u)>\\s*</(?:code|span|strong|em|b|i|u)>|<br/>)?\\s*</\\1>"), "<$1></$1>")
+            // Confluence добавляет в конец страницы служебный пустой блок; в генераторе его нет
+            .replace(Regex("<p class=\"auto-cursor-target\">\\s*(?:<br/>)?\\s*</p>"), "")
+            // Confluence сохраняет не-ASCII как сущности: эмодзи 📊 → &#55357;&#56522;,
+            // тире – → &ndash;. Раскодируем ВСЕ сущности (числовые и именованные), а не
+            // перечисляем поштучно: перечисление уже дважды давало пропуск (&ndash;, 📊),
+            // из-за чего страницы со «затем – ЕИО» обновлялись бесконечно.
+            .let { decodeHtmlEntities(it) }
+            // U+00A0 (после раскодирования `&nbsp;`) и zero-width space Confluence вставляет
+            // при редактировании; в генераторе их нет — приводим к обычному пробелу.
+            // Важно: это делается ПОСЛЕ decodeHtmlEntities, иначе `&nbsp;` уже раскодирован.
+            .replace('\u00A0', ' ')
+            .replace("\u200B", "")
             .replace(Regex("\\s+ac:schema-version=\"[^\"]*\""), "")
             .replace(Regex("\\s+ac:macro-id=\"[^\"]*\""), "")
             .trim()
+
+        // Атрибуты внутри тега Confluence может переставить местами — сортируем их,
+        // иначе одинаковый тег с другим порядком атрибутов считался бы изменением.
+        normalized = SORT_ATTRS.replace(normalized) { match ->
+            val tag = match.groupValues[1]
+            val attrs = ATTR.findAll(match.groupValues[2]).map { it.value.trim() }.sorted().toList()
+            if (attrs.isEmpty()) "<$tag>" else "<$tag ${attrs.joinToString(" ")}>"
+        }
+
+        return normalized
+    }
+
+    /**
+     * Раскодирует HTML-сущности в символы: числовые (`&#123;`, `&#x1F4CA;`) и именованные
+     * (`&ndash;`, `&laquo;`, `&nbsp;`).
+     *
+     * Нужно потому, что Confluence хранит не-ASCII как сущности: тире – записывается как
+     * `&ndash;`, эмодзи 📊 — как `&#55357;&#56522;` (пара UTF-16 surrogate).
+     *
+     * Таблица имён берётся из [EntityArrays] (bundled с платформой, полный HTML4 —
+     * BASIC + ISO8859_1 + HTML40_EXTENDED, 252 имени), а не пишется руками: самодельный
+     * список сущностей уже дважды приводил к пропускам (`&ndash;`, эмодзи), из-за чего
+     * страницы обновлялись бесконечно.
+     *
+     * Неизвестное имя возвращается как есть — это может быть обычный текст со знаком `&`.
+     */
+    private fun decodeHtmlEntities(html: String): String {
+        if (!html.contains('&')) return html
+
+        val sb = StringBuilder(html.length)
+        var i = 0
+        while (i < html.length) {
+            if (html[i] != '&') {
+                sb.append(html[i])
+                i++
+                continue
+            }
+
+            val semi = html.indexOf(';', i + 1)
+            // Ограничиваем длину имени: самая длинная сущность HTML4 — `&thetasym;`.
+            if (semi == -1 || semi - i > MAX_ENTITY_LENGTH) {
+                sb.append(html[i])
+                i++
+                continue
+            }
+
+            val body = html.substring(i + 1, semi)
+            val decoded: String? = when {
+                body.startsWith("#x") || body.startsWith("#X") ->
+                    body.substring(2).toIntOrNull(16)?.let { codePointToString(it) }
+
+                body.startsWith("#") ->
+                    body.substring(1).toIntOrNull()?.let { codePointToString(it) }
+
+                else -> HTML_ENTITIES["&$body;"]
+            }
+
+            if (decoded != null) {
+                sb.append(decoded)
+                i = semi + 1
+            } else {
+                sb.append(html[i])
+                i++
+            }
+        }
+        return sb.toString()
+    }
+
+    /** Code point → строка; некорректные значения игнорируются (возвращается null). */
+    private fun codePointToString(code: Int): String? =
+        if (Character.isValidCodePoint(code) && code > 0) String(Character.toChars(code)) else null
+
+    /**
+     * Диагностика расхождения: печатает первое место, где нормализованный контент страницы
+     * и сгенерированный контент различаются. Нужна, чтобы чинить нормализацию по факту,
+     * а не догадками. Убрать, когда детектор изменений перестанет ложно срабатывать.
+     */
+    private fun logNormalizeDivergence(title: String, storedNorm: String, generatedNorm: String) {
+        val i = storedNorm.zip(generatedNorm).indexOfFirst { (a, b) -> a != b }
+            .let { if (it == -1) minOf(storedNorm.length, generatedNorm.length) else it }
+
+        fun window(s: String) = s.substring(maxOf(0, i - 120), minOf(s.length, i + 120))
+            .replace("\n", "\\n")
+
+        thisLogger().warn(
+            "NORMALIZE-DIVERGENCE '$title' at index $i " +
+                    "(storedLen=${storedNorm.length}, generatedLen=${generatedNorm.length})\n" +
+                    "  STORED   : ...${window(storedNorm)}...\n" +
+                    "  GENERATED: ...${window(generatedNorm)}..."
+        )
     }
 
     private fun createPage(title: String, content: String, parentPageId: String?): String? {
@@ -493,5 +615,34 @@ class ConfluenceService(private val project: Project) {
             .replace("\n", "\\n")
             .replace("\r", "\\r")
             .replace("\t", "\\t")
+    }
+
+    private companion object {
+        /** Тег с непустым набором атрибутов: группа 1 — имя, группа 2 — атрибуты. */
+        val SORT_ATTRS = Regex("<([a-zA-Z][\\w:-]*)\\s+([^>]+?)\\s*/?>")
+
+        /** Один атрибут: `name`, `name=value`, `name="value"` или `name='value'`. */
+        val ATTR = Regex("[\\w:-]+(?:\\s*=\\s*(?:\"[^\"]*\"|'[^']*'|[^\\s\"'>]+))?")
+
+        /** Самая длинная сущность HTML4 — `&thetasym;` (10 символов). */
+        const val MAX_ENTITY_LENGTH = 12
+
+        /**
+         * Полный набор именованных сущностей HTML4 (`&ndash;` → `–`).
+         *
+         * [EntityArrays] помечен deprecated в commons-lang3, но он входит в поставку
+         * платформы IntelliJ (util-8.jar) и покрывает все нужные имена, поэтому своей
+         * таблицы мы не заводим.
+         */
+        @Suppress("DEPRECATION")
+        val HTML_ENTITIES: Map<String, String> = buildMap {
+            listOf(
+                EntityArrays.BASIC_UNESCAPE(),
+                EntityArrays.ISO8859_1_UNESCAPE(),
+                EntityArrays.HTML40_EXTENDED_UNESCAPE()
+            ).forEach { table ->
+                table.forEach { (entity, replacement) -> put(entity, replacement) }
+            }
+        }
     }
 }

@@ -11,6 +11,14 @@ import java.util.Locale
 
 object ConfluenceMarkupGenerator {
 
+    /**
+     * Цвет подсветки строк базовых действий CXBox (в таблице «Кнопки»).
+     * Это палитра Confluence «Светло-бирюзовый 35 %»: значение подставляется
+     * и в CSS-класс, и в `data-highlight-colour` — так Confluence сохраняет
+     * подсветку при редактировании страницы.
+     */
+    private const val BASE_ACTION_HIGHLIGHT = "#e6fcff"
+
     private var baseUrl: String = ""
     private var spaceKey: String = ""
 
@@ -1091,34 +1099,23 @@ object ConfluenceMarkupGenerator {
             ${
             actionNames.joinToString("") { actionName ->
                 val buttonInfo = buttonsInfo.find { it.actionName == actionName }
+                val baseAction = if (buttonInfo == null) BaseAction.byType(actionName) else null
+                // Базовые действия фреймворка подсвечиваются цветом строки,
+                // чтобы в таблице их было видно отдельно от объявленных в сервисе.
+                val cell = if (baseAction != null) {
+                    { content: String -> """<td class="highlight-$BASE_ACTION_HIGHLIGHT" data-highlight-colour="$BASE_ACTION_HIGHLIGHT">$content</td>""" }
+                } else {
+                    { content: String -> "<td>$content</td>" }
+                }
                 """
                 <tr>
-                    <td><code>${escapeHtml(actionName)}</code></td>
-                    <td>${buttonInfo?.buttonText ?: "?"}</td>
-                    <td>${buttonInfo?.scope?.name ?: "?"}</td>
-                    <td>
-                        <ac:structured-macro ac:name="expand">
-                            <ac:parameter ac:name="title">Показать доступность</ac:parameter>
-                            <ac:rich-text-body>
-                                <ac:structured-macro ac:name="code">
-                                    <ac:parameter ac:name="language">java</ac:parameter>
-                                    <ac:plain-text-body><![CDATA[${buttonInfo?.availableMethod ?: "-"}]]></ac:plain-text-body>
-                                </ac:structured-macro>
-                            </ac:rich-text-body>
-                        </ac:structured-macro>
-                    </td>
-                    <td>
-                        <ac:structured-macro ac:name="expand">
-                            <ac:parameter ac:name="title">Показать реакцию</ac:parameter>
-                            <ac:rich-text-body>
-                                <ac:structured-macro ac:name="code">
-                                    <ac:parameter ac:name="language">java</ac:parameter>
-                                    <ac:plain-text-body><![CDATA[${buttonInfo?.invokerMethod ?: "-"}]]></ac:plain-text-body>
-                                </ac:structured-macro>
-                            </ac:rich-text-body>
-                        </ac:structured-macro>
-                    </td>
-                    <td>
+                    ${cell("""<code>${escapeHtml(actionName)}</code>${if (baseAction != null) "<br/><em>(базовое действие CXBox)</em>" else ""}""")}
+                    ${cell(generateButtonTextCell(buttonInfo, baseAction))}
+                    ${cell(generateScopeCell(buttonInfo, baseAction))}
+                    ${cell(generateAvailabilityCell(buttonInfo, baseAction))}
+                    ${cell(generateReactionCell(buttonInfo, baseAction))}
+                    ${cell(
+                    """
                         <ac:structured-macro ac:name="expand">
                             <ac:parameter ac:name="title">Показать preAction</ac:parameter>
                             <ac:rich-text-body>
@@ -1128,8 +1125,9 @@ object ConfluenceMarkupGenerator {
                                 </ac:structured-macro>
                             </ac:rich-text-body>
                         </ac:structured-macro>
-                    </td>
-                    <td>${if (buttonInfo?.autoSaveBefore == true) "✅" else "❌"}</td>
+                    """.trimIndent()
+                )}
+                    ${cell(if (buttonInfo?.autoSaveBefore == true) "✅" else "❌")}
                 </tr>
                 """
             }
@@ -1137,6 +1135,108 @@ object ConfluenceMarkupGenerator {
         </table>
     """.trimIndent()
     }
+
+    /**
+     * Ячейка «Текст кнопки». Пустой текст — это допустимое значение
+     * (`Button.EMPTY`), а не отсутствие данных, поэтому «?» здесь не ставится.
+     *
+     * Иконка выводится пометкой `"$buttonText Иконка: $icon"` в двух случаях:
+     * - у действия объявлено `withIcon(icon, true)` — берётся иконка из исходников;
+     * - действие базовое ([BaseAction]) и не объявлено `withoutIcon()` — берётся
+     *   стандартная иконка фреймворка [BaseAction.icon].
+     *
+     * `withoutIcon()` подавляет иконку в обоих случаях.
+     */
+    private fun generateButtonTextCell(
+        buttonInfo: ButtonInfo?,
+        baseAction: BaseAction?
+    ): String {
+        val text = when {
+            buttonInfo != null -> buttonInfo.buttonText
+            else -> baseAction?.defaultText ?: ""
+        }
+        val icon = resolveIcon(buttonInfo, baseAction)
+        val withIconLabel = if (icon != null) "$text Иконка: $icon" else text
+        return escapeHtml(withIconLabel)
+    }
+
+    /**
+     * Иконка кнопки или `null`, если её не показываем. `withoutIcon()` имеет приоритет
+     * над остальным: разработчик явно отказался от иконки, в том числе базовой.
+     */
+    private fun resolveIcon(buttonInfo: ButtonInfo?, baseAction: BaseAction?): String? {
+        if (buttonInfo?.iconDisabled == true) {
+            return null
+        }
+        val ownIcon = buttonInfo?.iconCode?.takeIf { it.isNotEmpty() }
+        if (buttonInfo?.iconOnly == true && ownIcon != null) {
+            return ownIcon
+        }
+        return baseAction?.icon?.takeIf { it.isNotEmpty() }
+    }
+
+    /**
+     * Ячейка «Область видимости» — краткий ответ на вопрос, что охватывает действие
+     * ([ActionScope.description]). Код `scope(...)` не показываем: это свойство
+     * фреймворка, а не логика проекта. Для базовых действий scope берётся из
+     * [BaseAction.scope].
+     */
+    private fun generateScopeCell(
+        buttonInfo: ButtonInfo?,
+        baseAction: BaseAction?
+    ): String {
+        val description = buttonInfo?.scope?.description ?: baseAction?.scope?.description
+        return description?.let { escapeHtml(it) } ?: "?"
+    }
+
+    /**
+     * Ячейка «Доступность». Код метода `available(...)` из PSI имеет приоритет:
+     * базовая проверка фреймворка показывается только для действий, которых нет
+     * в `getActions()` сервиса, иначе отчёт противоречил бы исходнику.
+     * Если доступность определить не удалось — считаем, что ограничений нет.
+     */
+    private fun generateAvailabilityCell(
+        buttonInfo: ButtonInfo?,
+        baseAction: BaseAction?
+    ): String {
+        if (buttonInfo?.availableMethod != null) {
+            return codeMacro("Показать доступность", buttonInfo.availableMethod)
+        }
+        if (baseAction != null) {
+            return escapeHtml(baseAction.availability.description)
+        }
+        return escapeHtml(ActionAvailability.ALWAYS_TRUE.description)
+    }
+
+    /**
+     * Ячейка «Реакция». Если инвокер есть в исходниках — показываем его;
+     * для базовых действий CXBox инвокер в проекте не объявлен, поэтому выводим
+     * пояснение к стандартному поведению кнопки.
+     */
+    private fun generateReactionCell(
+        buttonInfo: ButtonInfo?,
+        baseAction: BaseAction?
+    ): String {
+        if (buttonInfo?.invokerMethod != null) {
+            return codeMacro("Показать реакцию", buttonInfo.invokerMethod)
+        }
+        if (baseAction != null) {
+            return escapeHtml(baseAction.reaction)
+        }
+        return "-"
+    }
+
+    private fun codeMacro(title: String, body: String): String = """
+        <ac:structured-macro ac:name="expand">
+            <ac:parameter ac:name="title">$title</ac:parameter>
+            <ac:rich-text-body>
+                <ac:structured-macro ac:name="code">
+                    <ac:parameter ac:name="language">java</ac:parameter>
+                    <ac:plain-text-body><![CDATA[$body]]></ac:plain-text-body>
+                </ac:structured-macro>
+            </ac:rich-text-body>
+        </ac:structured-macro>
+    """.trimIndent()
 
     private fun analyzeShowConditionLogic(
         showCondition: ShowCondition,

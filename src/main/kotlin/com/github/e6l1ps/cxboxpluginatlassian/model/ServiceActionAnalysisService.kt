@@ -115,6 +115,31 @@ class ServiceActionAnalysisService(private val project: Project) {
         return bcToActions
     }
 
+    /**
+     * Имена методов `ActionsBuilder`, объявляющих действие.
+     * - `action` — универсальная форма `.action(key, text)`;
+     * - `create`/`save`/`cancelCreate`/`associate`/`delete` — лямбда-формы
+     *   `create { it -> ... }`; имя действия у них задаёт фреймворк (`ActionType`);
+     * - `add` — `.add(key, responseServiceAction)`.
+     *
+     * `addGroup` и `addAll` намеренно не разбираются: это группировка и перенос
+     * чужих действий, а не объявление кнопки.
+     */
+    private val actionMethodNames = setOf(
+        "action", "create", "save", "cancelCreate", "associate", "delete", "add"
+    )
+
+    /**
+     * Лямбда-формы, у которых имя действия совпадает с типом `ActionType`.
+     * Для них имя и текст берутся из [BaseAction], а не из аргументов вызова.
+     */
+    private val baseActionMethodNames = setOf(
+        "create", "save", "cancelCreate", "associate", "delete"
+    )
+
+    /** Методы, у которых `ActionsBuilder` сам вызывает `withoutAutoSaveBefore()`. */
+    private val autoSaveDisabledMethods = setOf("create", "cancelCreate", "delete")
+
     private fun parseActions(getActions: PsiMethod): List<ButtonInfo> {
         val body = getActions.body ?: return emptyList()
         val calls = PsiTreeUtil.findChildrenOfType(body, PsiMethodCallExpression::class.java)
@@ -123,15 +148,17 @@ class ServiceActionAnalysisService(private val project: Project) {
         for (call in calls) {
             val name = call.methodExpression.referenceName ?: continue
 
-            if (name in listOf("action", "save", "cancelCreate")) {
-                val actionName = extractActionKey(call) ?: continue
-                val buttonText = extractActionText(call) ?: ""
-                val scope = extractScope(call)
+            if (name in actionMethodNames) {
+                val actionName = extractActionKey(call, name) ?: continue
+                val buttonText = extractActionText(call, name) ?: ""
+                val scope = extractScope(call, name)
                 val availableMethod = extractAvailableMethod(call)
                 val invokerMethod = extractInvokerMethod(call)
                 val preAction = extractPreAction(call)
-                val autoSaveBefore = extractAutoSaveBefore(call)
+                val autoSaveBefore = extractAutoSaveBefore(call, name)
                 val iconCode = extractIconCode(call)
+                val iconOnly = extractIconOnly(call)
+                val iconDisabled = findChainedCall(call, "withoutIcon") != null
 
                 actions.add(
                     ButtonInfo(
@@ -142,7 +169,9 @@ class ServiceActionAnalysisService(private val project: Project) {
                         invokerMethod,
                         preAction,
                         autoSaveBefore,
-                        iconCode
+                        iconCode,
+                        iconOnly,
+                        iconDisabled
                     )
                 )
             }
@@ -151,7 +180,12 @@ class ServiceActionAnalysisService(private val project: Project) {
         return actions
     }
 
-    private fun extractScope(call: PsiMethodCallExpression): ActionScope {
+    /**
+     * Явный `scope(...)` имеет приоритет. Если его нет, берётся scope, который
+     * проставляет сам фреймворк: `create()` и `associate()` объявлены как
+     * `scope(ActionScope.BC)` (см. `ActionsBuilder`), остальные — `RECORD`.
+     */
+    private fun extractScope(call: PsiMethodCallExpression, methodName: String): ActionScope {
         val scopeCall = findChainedCall(call, "scope")
         val scopeString = scopeCall
             ?.argumentList
@@ -161,14 +195,17 @@ class ServiceActionAnalysisService(private val project: Project) {
             ?.text
             ?.removeSurrounding("\"")
 
-        return if (scopeString != null) {
-            try {
+        if (scopeString != null) {
+            return try {
                 ActionScope.valueOf(scopeString)
             } catch (_: IllegalArgumentException) {
                 ActionScope.RECORD
             }
-        } else {
-            ActionScope.RECORD
+        }
+
+        return when (methodName) {
+            "create", "associate" -> ActionScope.BC
+            else -> ActionScope.RECORD
         }
     }
 
@@ -226,26 +263,70 @@ class ServiceActionAnalysisService(private val project: Project) {
         return null
     }
 
-    private fun extractAutoSaveBefore(call: PsiMethodCallExpression): Boolean {
+    /**
+     * Явный `withoutAutoSaveBefore()` выключает автосохранение. Кроме того, у
+     * `create()`, `cancelCreate()` и `delete()` фреймворк вызывает его сам
+     * (см. `ActionsBuilder`), поэтому для них по умолчанию `false`.
+     */
+    private fun extractAutoSaveBefore(call: PsiMethodCallExpression, methodName: String): Boolean {
         val withoutAutoSaveCall = findChainedCall(call, "withoutAutoSaveBefore")
-        return withoutAutoSaveCall == null
+        if (withoutAutoSaveCall != null) {
+            return false
+        }
+        return methodName !in autoSaveDisabledMethods
     }
 
+    /**
+     * Иконка из `withIcon(ActionIcon.EDIT, true)` — первый аргумент.
+     * Берётся имя константы (`EDIT`): значения enum `ActionIcon` в исходниках
+     * проекта могут быть недоступны, а имя совпадает с тем, что выбирает разработчик.
+     * Если первым аргументом передана строка, возвращается её содержимое.
+     */
     private fun extractIconCode(call: PsiMethodCallExpression): String? {
-        // TODO: разбор .withIcon(...)
-        return null
+        val iconCall = findChainedCall(call, "withIcon") ?: return null
+        val arg = iconCall.argumentList.expressions.firstOrNull() ?: return null
+
+        return when (arg) {
+            is PsiReferenceExpression -> arg.referenceName
+            is PsiLiteralExpression -> arg.value as? String
+            else -> arg.text.trim().takeIf { it.isNotEmpty() }
+        }
+    }
+
+    /**
+     * Второй аргумент `withIcon(icon, true)` — «только иконка»: на кнопке нет текста.
+     * Если второго аргумента нет, считается `false` (иконка вместе с текстом).
+     */
+    private fun extractIconOnly(call: PsiMethodCallExpression): Boolean {
+        val iconCall = findChainedCall(call, "withIcon") ?: return false
+        val secondArg = iconCall.argumentList.expressions.getOrNull(1) ?: return false
+
+        return when (secondArg) {
+            is PsiLiteralExpression -> secondArg.value as? Boolean ?: false
+            else -> secondArg.text.equals("true", ignoreCase = true)
+        }
     }
 
 
-    private fun extractActionKey(call: PsiMethodCallExpression): String? {
+    /**
+     * Имя действия. Для `action(key, ...)` и `add(key, ...)` — первый аргумент:
+     * литерал либо константа (`Button.EDIT_CHECK_RESULT`). Для лямбда-форм
+     * (`create { ... }`) своего имени нет — действие задаёт фреймворк,
+     * поэтому берётся тип из `ActionType`: он же попадает в `actionGroups.include`.
+     */
+    private fun extractActionKey(call: PsiMethodCallExpression, methodName: String): String? {
+        if (methodName in baseActionMethodNames) {
+            return methodName
+        }
         val args = call.argumentList.expressions
         return when (val first = args.firstOrNull()) {
             is PsiLiteralExpression -> first.value as? String
+            is PsiReferenceExpression -> first.referenceName
             else -> null
         }
     }
 
-    private fun extractActionText(call: PsiMethodCallExpression): String? {
+    private fun extractActionText(call: PsiMethodCallExpression, methodName: String): String? {
         // Пытаемся найти .text(...) в цепочке вызовов
         var current: PsiMethodCallExpression? = call
         while (current != null) {
@@ -256,7 +337,13 @@ class ServiceActionAnalysisService(private val project: Project) {
             current = current.parent as? PsiMethodCallExpression
         }
 
-        // Иначе — второй аргумент в .action(key, text)
+        // Лямбда-формы create { ... } / delete { ... }: текст вручную не задаётся,
+        // используется локализованный текст по умолчанию
+        if (methodName in baseActionMethodNames) {
+            return BaseAction.byType(methodName)?.defaultText
+        }
+
+        // Иначе — второй аргумент в .action(key, text) или .add(key, responseServiceAction)
         val args = call.argumentList.expressions
         if (args.size >= 2) {
             return resolveExpressionValue(args[1])
