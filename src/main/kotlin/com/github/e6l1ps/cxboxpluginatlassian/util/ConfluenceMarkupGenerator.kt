@@ -7,6 +7,7 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import com.intellij.psi.*
 import java.net.URLEncoder
+import java.util.Locale
 
 object ConfluenceMarkupGenerator {
 
@@ -111,16 +112,6 @@ object ConfluenceMarkupGenerator {
         return mappings
     }
 
-    private fun isThisFieldAssignment(expression: PsiAssignmentExpression): Boolean {
-        return expression.lExpression is PsiReferenceExpression &&
-                (expression.lExpression as PsiReferenceExpression).qualifierExpression?.text == "this"
-    }
-
-    private fun processMethodCall(methodCall: PsiMethodCallExpression, mappings: MutableMap<String, String>) {
-        // Здесь можно добавить обработку специфических методов маппинга
-        // Например, если используются builder-методы или другие подходы
-    }
-
     private fun generateScreensCategoryPage(category: String, screens: List<ScreenFile>): String {
         val screensWithNavigation = screens.count { it.navigation != null }
         val totalViewsInNavigation = screens.sumOf { countViewsInScreen(it) }
@@ -209,7 +200,7 @@ object ConfluenceMarkupGenerator {
             </tr>
             <tr>
                 <td>Среднее виджетов на View</td>
-                <td>${"%.1f".format(totalWidgets.toDouble() / views.size)}</td>
+                <td>${averagePerItem(totalWidgets, views.size)}</td>
             </tr>
         </table>
         
@@ -275,7 +266,7 @@ object ConfluenceMarkupGenerator {
             </tr>
             <tr>
                 <td>Среднее полей на Widget</td>
-                <td>${"%.1f".format(totalFields.toDouble() / widgets.size)}</td>
+                <td>${averagePerItem(totalFields, widgets.size)}</td>
             </tr>
         </table>
         
@@ -315,124 +306,83 @@ object ConfluenceMarkupGenerator {
     """.trimIndent()
     }
 
-    private fun generateEmptyCategoryPage(category: String): String {
+    /**
+     * Таблица «значение — количество — процент».
+     *
+     * [total] — база для процента: размер всей совокупности, а не показанной выборки.
+     * Раньше таблицы иконок и топ-BC делили на размер самой группы, поэтому всегда
+     * показывали 100%.
+     */
+    private fun distributionTable(
+        header: String,
+        rows: List<Pair<String, Int>>,
+        total: Int,
+        countHeader: String = "Количество",
+        renderLabel: (String) -> String = { "<code>${escapeHtml(it)}</code>" }
+    ): String {
         return """
-        <h1>📁 $category</h1>
-        <p><em>Эта категория пуста</em></p>
-        <p>В данной категории не найдено элементов для отображения.</p>
+        <table border="1" cellpadding="5" cellspacing="0" style="width: 100%;">
+            <tr>
+                <th>$header</th>
+                <th>$countHeader</th>
+                <th>Процент</th>
+            </tr>
+            ${
+            rows.joinToString("") { (label, count) ->
+                val percentage = if (total == 0) 0 else (count * 100.0 / total).toInt()
+                """
+                <tr>
+                    <td>${renderLabel(label)}</td>
+                    <td>$count</td>
+                    <td>$percentage%</td>
+                </tr>
+                """
+            }
+        }
+        </table>
     """.trimIndent()
     }
 
     private fun generateViewsTemplateDistribution(viewsByTemplate: Map<String, List<ViewFile>>): String {
         val totalViews = viewsByTemplate.values.sumOf { it.size }
+        val rows = viewsByTemplate.entries
+            .sortedByDescending { it.value.size }
+            .map { (template, views) -> template to views.size }
 
-        return """
-        <table border="1" cellpadding="5" cellspacing="0" style="width: 100%;">
-            <tr>
-                <th>Шаблон</th>
-                <th>Количество</th>
-                <th>Процент</th>
-            </tr>
-            ${
-            viewsByTemplate.entries.sortedByDescending { it.value.size }.joinToString("") { (template, views) ->
-                val percentage = (views.size * 100.0 / totalViews).toInt()
-                """
-                <tr>
-                    <td><code>${escapeHtml(template)}</code></td>
-                    <td>${views.size}</td>
-                    <td>$percentage%</td>
-                </tr>
-                """
-            }
-        }
-        </table>
-    """.trimIndent()
+        return distributionTable("Шаблон", rows, totalViews)
     }
 
     private fun generateWidgetsTypeDistribution(widgetsByType: Map<String, List<WidgetFile>>): String {
         val totalWidgets = widgetsByType.values.sumOf { it.size }
+        val rows = widgetsByType.entries
+            .sortedByDescending { it.value.size }
+            .map { (type, widgets) -> type to widgets.size }
 
-        return """
-        <table border="1" cellpadding="5" cellspacing="0" style="width: 100%;">
-            <tr>
-                <th>Тип виджета</th>
-                <th>Количество</th>
-                <th>Процент</th>
-            </tr>
-            ${
-            widgetsByType.entries.sortedByDescending { it.value.size }.joinToString("") { (type, widgets) ->
-                val percentage = (widgets.size * 100.0 / totalWidgets).toInt()
-                """
-                <tr>
-                    <td><code>${escapeHtml(type)}</code></td>
-                    <td>${widgets.size}</td>
-                    <td>$percentage%</td>
-                </tr>
-                """
-            }
-        }
-        </table>
-    """.trimIndent()
+        return distributionTable("Тип виджета", rows, totalWidgets)
     }
 
     private fun generateTopBCsDistribution(widgets: List<WidgetFile>): String {
         val bcDistribution = widgets.groupBy { it.bc }
-        val topBCs = bcDistribution.entries.sortedByDescending { it.value.size }.take(10)
+        val rows = bcDistribution.entries
+            .sortedByDescending { it.value.size }
+            .take(10)
+            .map { (bc, bcWidgets) -> bc to bcWidgets.size }
 
-        return """
-        <table border="1" cellpadding="5" cellspacing="0" style="width: 100%;">
-            <tr>
-                <th>BC</th>
-                <th>Количество виджетов</th>
-                <th>Процент</th>
-            </tr>
-            ${
-            topBCs.joinToString("") { (bc, widgets) ->
-                val percentage = (widgets.size * 100.0 / widgets.size).toInt()
-                """
-                <tr>
-                    <td><code>${escapeHtml(bc)}</code></td>
-                    <td>${widgets.size}</td>
-                    <td>$percentage%</td>
-                </tr>
-                """
-            }
-        }
-        </table>
-        ${if (bcDistribution.size > 10) "<p><em>... и ещё ${bcDistribution.size - 10} BC</em></p>" else ""}
-    """.trimIndent()
+        val table = distributionTable("BC", rows, widgets.size, countHeader = "Количество виджетов")
+        val tail = if (bcDistribution.size > 10) "<p><em>... и ещё ${bcDistribution.size - 10} BC</em></p>" else ""
+
+        return "$table\n$tail"
     }
 
     private fun generateScreensIconsDistribution(screens: List<ScreenFile>): String {
         val iconsDistribution = screens.groupBy { it.icon ?: "Не указана" }
+        val rows = iconsDistribution.entries
+            .sortedByDescending { it.value.size }
+            .map { (icon, iconScreens) -> icon to iconScreens.size }
 
-        return """
-        <table border="1" cellpadding="5" cellspacing="0" style="width: 100%;">
-            <tr>
-                <th>Иконка</th>
-                <th>Количество</th>
-                <th>Процент</th>
-            </tr>
-            ${
-            iconsDistribution.entries.sortedByDescending { it.value.size }.joinToString("") { (icon, screens) ->
-                val percentage = (screens.size * 100.0 / screens.size).toInt()
-                """
-                <tr>
-                    <td><code>${if (icon == "Не указана") icon else "'$icon'"} </code></td>
-                    <td>${screens.size}</td>
-                    <td>$percentage%</td>
-                </tr>
-                """
-            }
+        return distributionTable("Иконка", rows, screens.size) { icon ->
+            "<code>${if (icon == "Не указана") icon else "'$icon'"} </code>"
         }
-        </table>
-    """.trimIndent()
-    }
-
-    private fun generateCategoryPage(category: String, items: List<Any>): String {
-        return """
-            <h1>${category}</h1>
-        """.trimIndent()
     }
 
     private fun generateMainPage(result: MetaFilesResult): String {
@@ -637,30 +587,16 @@ object ConfluenceMarkupGenerator {
     // ========== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ ТАБЛИЦ ==========
 
     private fun generateFieldTypesTable(fieldTypes: Map<String, List<WidgetField>>, totalFields: Int): String {
-        val sortedTypes = fieldTypes.entries.sortedByDescending { it.value.size }
+        val rows = fieldTypes.entries
+            .sortedByDescending { it.value.size }
+            .map { (type, fields) -> type to fields.size }
 
-        return """
-            <table border="1" cellpadding="5" cellspacing="0" style="width: 100%;">
-                <tr>
-                    <th>Тип поля</th>
-                    <th>Количество</th>
-                    <th>Процент</th>
-                </tr>
-                ${
-            sortedTypes.joinToString("") { (type, fields) ->
-                val percentage = (fields.size * 100.0 / totalFields).toInt()
-                """
-                    <tr>
-                        <td><code>${escapeHtml(type)}</code></td>
-                        <td>${fields.size}</td>
-                        <td>$percentage%</td>
-                    </tr>
-                    """
-            }
-        }
-            </table>
-        """.trimIndent()
+        return distributionTable("Тип поля", rows, totalFields)
     }
+
+    /** Среднее на элемент. Локаль фиксирована, иначе на ru-машине вышло бы «2,5». */
+    private fun averagePerItem(total: Int, items: Int): String =
+        if (items == 0) "0.0" else "%.1f".format(Locale.ROOT, total.toDouble() / items)
 
     private fun generateScreensTable(screens: List<ScreenFile>): String {
         if (screens.isEmpty()) return "<p>Нет screens</p>"
@@ -812,15 +748,18 @@ object ConfluenceMarkupGenerator {
         """.trimIndent()
     }
 
-    private fun getPageLink(prefix: String, widgetName: String): String {
-        val pageTitle = "$prefix $widgetName"
+    /**
+     * Ссылка на страницу Confluence с заголовком `"<prefix> <pageName>"`.
+     *
+     * URL кодируется от «сырого» имени, а видимый текст — экранируется: раньше
+     * вызывающие передавали уже экранированное имя (escapeHtml до вызова), из-за чего
+     * в href попадали HTML-сущности вроде `&amp;`.
+     */
+    private fun getPageLink(prefix: String, pageName: String): String {
+        val pageTitle = "$prefix $pageName"
+        val encodedTitle = URLEncoder.encode(pageTitle, "UTF-8")
 
-        return """<a href="$baseUrl/display/$spaceKey/${
-            URLEncoder.encode(
-                pageTitle,
-                "UTF-8"
-            )
-        }"><code>$widgetName</code></a>"""
+        return """<a href="$baseUrl/display/$spaceKey/$encodedTitle"><code>${escapeHtml(pageName)}</code></a>"""
     }
 
     private fun generateFieldsTable(fields: List<WidgetField>, fieldMappings: Map<String, String>): String {
@@ -885,7 +824,7 @@ object ConfluenceMarkupGenerator {
                 menuItem.child.forEach { child ->
                     when (child) {
                         is MenuItemChild.ViewItem -> {
-                            appendLine("<li class=\"view\">${getPageLink("View:", escapeHtml(child.viewName))}</li>")
+                            appendLine("<li class=\"view\">${getPageLink("View:", child.viewName)}</li>")
                         }
 
                         is MenuItemChild.SubMenu -> {
@@ -897,7 +836,7 @@ object ConfluenceMarkupGenerator {
             } else {
                 menuItem.viewName?.let { viewName ->
                     appendLine("<ul>")
-                    appendLine("<li class=\"view\">${getPageLink("View:", escapeHtml(viewName))}</li>")
+                    appendLine("<li class=\"view\">${getPageLink("View:", viewName)}</li>")
                     appendLine("</ul>")
                 }
             }
@@ -915,7 +854,7 @@ object ConfluenceMarkupGenerator {
                 subMenu.child.forEach { child ->
                     when (child) {
                         is MenuItemChild.ViewItem -> {
-                            appendLine("<li class=\"view\">${getPageLink("View:", escapeHtml(child.viewName))}</li>")
+                            appendLine("<li class=\"view\">${getPageLink("View:", child.viewName)}</li>")
                         }
 
                         is MenuItemChild.SubMenu -> {
@@ -1288,50 +1227,6 @@ object ConfluenceMarkupGenerator {
                 appendLine("</div>")
             }
         }
-    }
-
-    fun findDraftLegalEntityParameterClass(psiClass: PsiClass): PsiClass? {
-        return psiClass.constructors
-            .flatMap { it.parameterList.parameters.toList() }
-            .mapNotNull { parameter ->
-                (parameter.type as? PsiClassType)?.resolve()
-            }
-            .firstOrNull()
-    }
-
-
-    fun findTableName(entityClass: PsiClass): String? {
-        // Ищем аннотацию @Table
-        val tableAnnotation = entityClass.annotations.find {
-            it.qualifiedName == "javax.persistence.Table" ||
-                    it.qualifiedName == "jakarta.persistence.Table"
-        }
-
-        if (tableAnnotation != null) {
-            // Ищем атрибут name в аннотации @Table
-            val nameAttribute = tableAnnotation.findAttributeValue("name")
-            if (nameAttribute != null) {
-                return nameAttribute.text.removeSurrounding("\"")
-            }
-        }
-
-        // Если аннотации @Table нет, ищем @Entity и используем имя класса
-        val entityAnnotation = entityClass.annotations.find {
-            it.qualifiedName == "javax.persistence.Entity" ||
-                    it.qualifiedName == "jakarta.persistence.Entity"
-        }
-
-        if (entityAnnotation != null) {
-            // Если есть @Entity, но нет @Table, используем имя класса
-            return convertClassNameToTableName(entityClass.name ?: "")
-        }
-
-        return null
-    }
-
-    private fun convertClassNameToTableName(className: String): String {
-        // Простая конвертация CamelCase to SNAKE_CASE
-        return className.replace(Regex("([a-z])([A-Z])"), "$1_$2").uppercase()
     }
 
 }

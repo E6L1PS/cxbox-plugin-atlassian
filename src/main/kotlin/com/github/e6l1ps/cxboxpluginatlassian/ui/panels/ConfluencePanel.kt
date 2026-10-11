@@ -77,17 +77,22 @@ class ConfluencePanel(
     }
 
     private fun exportToConfluence() {
-        val result = parseMetaFiles()
         confluenceService.resetCounters()
-        val combinedUrlsMap = mutableMapOf<String, String?>()
 
-        result.getTitles().chunked(100).forEach { batch ->
-            val batchResult = confluenceService.resolvePageUrlsByTitles(batch)
-            combinedUrlsMap.putAll(batchResult)
-        }
         ProgressManager.getInstance().run(object : Task.Modal(project, "Exporting CxBox Documentation", true) {
             override fun run(indicator: ProgressIndicator) {
                 indicator.isIndeterminate = false
+
+                // Разбор meta и поиск уже опубликованных страниц — внутри фоновой задачи:
+                // resolvePageUrlsByTitles делает HTTP-запросы, на EDT они вешали UI.
+                indicator.text = "Parsing meta files..."
+                val result = parseMetaFiles()
+
+                indicator.text = "Resolving existing pages..."
+                val combinedUrlsMap = mutableMapOf<String, String?>()
+                result.getTitles().chunked(100).forEach { batch ->
+                    combinedUrlsMap.putAll(confluenceService.resolvePageUrlsByTitles(batch))
+                }
 
                 // Генерируем документацию
                 indicator.text = "Generating hierarchical documentation..."
@@ -248,19 +253,33 @@ class ConfluencePanel(
         }
     }
 
+    /**
+     * Создаёт страницу с повтором при неудаче.
+     *
+     * [ConfluenceService.createOrUpdatePage] не бросает исключение, а возвращает `null`
+     * (внутри все ошибки HTTP логируются и гасятся), поэтому раньше повтор не срабатывал
+     * никогда — исключение просто не долетало. Повтор идемпотентен: страница ищется по
+     * заголовку, поэтому уже созданная не будет продублирована.
+     */
     private fun createPageWithRetry(title: String, content: String, parentPageId: String?): String? {
-        return try {
-            confluenceService.createOrUpdatePage(title, content, parentPageId)
-        } catch (e: Exception) {
-            thisLogger().warn("Failed to create page '$title', retrying...")
+        var lastFailure: String? = null
+
+        repeat(PAGE_CREATE_ATTEMPTS) { attempt ->
             try {
-                Thread.sleep(1000)
-                confluenceService.createOrUpdatePage(title, content, parentPageId)
-            } catch (e2: Exception) {
-                thisLogger().error("Failed to create page '$title' after retry: ${e2.message}")
-                null
+                val pageId = confluenceService.createOrUpdatePage(title, content, parentPageId)
+                if (pageId != null) return pageId
+                lastFailure = "Confluence не вернул id страницы"
+            } catch (e: Exception) {
+                lastFailure = e.message
+            }
+
+            if (attempt < PAGE_CREATE_ATTEMPTS - 1) {
+                Thread.sleep(PAGE_CREATE_RETRY_DELAY_MS)
             }
         }
+
+        thisLogger().error("Failed to create page '$title' after $PAGE_CREATE_ATTEMPTS attempts: $lastFailure")
+        return null
     }
 
     fun updateStatus() {
@@ -306,5 +325,13 @@ class ConfluencePanel(
 
     fun dispose() {
         executor.shutdown()
+    }
+
+    private companion object {
+        /** Сколько всего попыток создать страницу (1 попытка + повторы). */
+        const val PAGE_CREATE_ATTEMPTS = 2
+
+        /** Пауза перед повтором создания страницы. */
+        const val PAGE_CREATE_RETRY_DELAY_MS = 1000L
     }
 }

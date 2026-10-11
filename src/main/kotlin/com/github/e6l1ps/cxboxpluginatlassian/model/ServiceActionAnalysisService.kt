@@ -115,20 +115,6 @@ class ServiceActionAnalysisService(private val project: Project) {
         return bcToActions
     }
 
-    // Ищем класс, который реализует интерфейс
-    fun findImplementationPsiClass(interfaceClass: Class<*>): PsiClass? {
-        val psiClasses = PsiShortNamesCache.getInstance(project)
-            .getClassesByName(
-                interfaceClass.simpleName.removeSuffix("Interface"),
-                GlobalSearchScope.projectScope(project)
-            )
-
-        return psiClasses.firstOrNull { psiClass ->
-            psiClass.interfaces.any { it.qualifiedName == interfaceClass.name }
-        }
-    }
-
-
     private fun parseActions(getActions: PsiMethod): List<ButtonInfo> {
         val body = getActions.body ?: return emptyList()
         val calls = PsiTreeUtil.findChildrenOfType(body, PsiMethodCallExpression::class.java)

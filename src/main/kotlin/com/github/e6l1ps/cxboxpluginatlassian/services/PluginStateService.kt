@@ -11,18 +11,8 @@ class PluginStateService(project: Project) {
 
     var selectedModule: String? = null
     var foundJsonFiles: List<VirtualFile> = emptyList()
-    var bcMappings: Map<String, Any> = emptyMap()
 
     init {
         thisLogger().info(MyBundle.message("projectService", project.name))
-        thisLogger().warn("Don't forget to remove all non-needed sample code files with their corresponding registration entries in `plugin.xml`.")
-    }
-
-    fun getJsonFileNames(): List<String> {
-        return foundJsonFiles.map { it.name }
-    }
-
-    fun getJsonFilePaths(): List<String> {
-        return foundJsonFiles.map { it.path }
     }
 }
